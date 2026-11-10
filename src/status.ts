@@ -1,7 +1,8 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { RigConfig } from './config.js';
 import { lastBeat, type Beat } from './heartbeat.js';
-import { readNight } from './digest/read.js';
+import { parseLine } from './digest/read.js';
 
 export type Status = {
   adapter: string;
@@ -10,7 +11,8 @@ export type Status = {
   nights: NightSummary[];
 };
 
-// Job counts by each job's last status; null when the night can't be read.
+// Run-line counts by status for the night (ok / retry / fail lines in the log), parsed with the
+// digest reader's own line parser; null when the night can't be read.
 export type NightSummary = {
   night: string;
   counts: { ok: number; retry: number; fail: number } | null;
@@ -18,10 +20,12 @@ export type NightSummary = {
 
 function nightCounts(runsDir: string, night: string): NightSummary['counts'] {
   try {
-    const n = readNight(runsDir, night);
-    if (!n) return null;
+    const text = readFileSync(join(runsDir, `${night}.jsonl`), 'utf8');
     const counts = { ok: 0, retry: 0, fail: 0 };
-    for (const r of n.rows) counts[r.lastStatus]++;
+    for (const line of text.split('\n')) {
+      const run = line.trim() ? parseLine(line) : null;
+      if (run) counts[run.status]++;
+    }
     return counts;
   } catch {
     return null;
